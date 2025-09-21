@@ -17,16 +17,15 @@
     }
   ],
   "relationships": {
-    "systems": [
-      {
-        "id": "shadowrun5e",
-        "type": "required",
-        "compatibility": {
-          "minimum": "0.29.0"
-        }
+  "systems": [
+    {
+      "id": "shadowrun5e",
+      "compatibility": {
+        "minimum": "0.29.0"
       }
-    ]
-  },
+    }
+  ]
+},
   "esmodules": [
     "scripts/main.mjs"
   ],
