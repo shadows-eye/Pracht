@@ -77,56 +77,124 @@ Hooks.on('preUpdateActor', async (actor, changes) => {
     }
 });
 
-Hooks.on('renderSR5CharacterSheet', (app, html, data) => {
+Hooks.on('renderSR5CharacterSheet', (app, htmlElement, data) => {
+    const html = $(htmlElement);
+
     if (app.actor.type !== 'character') return;
 
-    const specialAttributesSection = html.find('.split-container .flexcol .attributes.center');
-    if (specialAttributesSection.length === 0) return;
+    // 1. Locate the container (anchoring to Magic)
+    const magicAttribute = html.find('.tab[data-tab="skills"] .attributes .attribute[data-attribute-id="magic"]');
+    const attributesContainer = html.find('.tab[data-tab="skills"] .attributes');
+    
+    // Safety: If we can't find the container, stop.
+    if (attributesContainer.length === 0) return;
 
-    specialAttributesSection.find('.attribute[data-attribute="resonance"]').hide();
-    specialAttributesSection.find('.attribute[data-attribute="submersion"]').hide(); 
-    html.find('input[name="system.technomancer.submersion"]').closest('.attribute').hide();
+    // 2. Hide original Resonance/Submersion
+    html.find('[data-attribute-id="resonance"]').hide();
+    html.find('[data-attribute-id="submersion"]').hide();
+    
+    // 3. Check for existing injection
+    if (html.find('.pracht-node').length > 0) return;
 
-    if (specialAttributesSection.find('.pracht-funke-container').length > 0) return;
-
-    const prachtValue = data.actor.system.attributes.resonance.base;
-    const funkeValue = data.actor.system.attributes.submersion.value; 
-    const prachtLabel = game.i18n.localize("SR5-Pracht.PRACHT");
+    // 4. Prepare Data
+    const prachtValue = app.actor.system.attributes.resonance.base;
+    const funkeValue = app.actor.system.attributes.submersion.value; 
+    
+    const prachtLabel = game.i18n.localize("SR5-Pracht.PRACHT"); 
     const funkeLabel = game.i18n.localize("SR5-Pracht.FUNKE");
 
-    const newAttributesHTML = `
-        <div class="pracht-funke-container">
-            <div class="pracht-container attribute">
-                <label class="attribute-name roll Roll" title="${prachtLabel}" data-roll-attribute="resonance"><i class="fas fa-sun"></i></label>
-                <div class="attribute-value">
-                     <div class="attribute-input-container">
-                        <input class="display attribute-input short" type="text" data-tooltip="${prachtLabel}" maxlength="2" size="2" name="system.attributes.resonance.base" value="${prachtValue}" data-dtype="Number" placeholder="">
-                    </div>
-                </div>
-            </div>
-            <div class="funke-container attribute">
-                <label class="attribute-name roll Roll" title="${funkeLabel}" data-roll-attribute="submersion"><i class="fas fa-fire"></i></label>
-                <div class="attribute-value">
-                    <span class="attribute-value-display">${funkeValue}</span>
-                </div>
+    const isEditMode = app.isEditMode;
+
+    // -------------------------------------------------------
+    // HTML GENERATION HELPERS
+    // -------------------------------------------------------
+    
+    // Helper to generate the inner value HTML (Button vs Input)
+    const buildValueHtml = (val, name, key, icon) => {
+        if (isEditMode) {
+            // EDIT MODE: Matches the system's <input type="number" class="short skinny center">
+            return `
+                <input type="number" 
+                       name="${name}" 
+                       value="${val}" 
+                       step="1" 
+                       class="short skinny center">
+            `;
+        } else {
+            // VIEW MODE: Matches the system's <button class="icon sr5-icon">
+            // We add a custom class (e.g. 'pracht-roll') to attach our own listener
+            return `
+                <button class="icon sr5-icon ${key}-roll" type="button">
+                    ${val}
+                </button>
+            `;
+        }
+    };
+
+    // Helper to generate the Label HTML
+    const buildLabelHtml = (label, iconClass, key) => {
+        // In Edit Mode, the system adds the 'edit-mode' class to the label
+        const cssClass = isEditMode ? "edit-mode" : `${key}-roll-label`; 
+        const style = isEditMode ? "" : "cursor: pointer;";
+        
+        return `
+            <label class="${cssClass}" style="${style}">
+                 <i class="${iconClass}"></i> ${label}
+            </label>
+        `;
+    };
+
+    // -------------------------------------------------------
+    // CONSTRUCT HTML
+    // -------------------------------------------------------
+
+    // Pracht (Resonance)
+    const prachtHtml = `
+        <div class="attribute pracht-node" data-attribute-id="resonance">
+            ${buildLabelHtml(prachtLabel, "fas fa-sun", "pracht")}
+            <div class="attribute-value">
+                ${buildValueHtml(prachtValue, "system.attributes.resonance.base", "pracht")}
             </div>
         </div>
     `;
+
+    // Funke (Submersion)
+    // Note: We bind the input to 'system.attributes.submersion.value' so edits save automatically
+    const funkeHtml = `
+        <div class="attribute funke-node" data-attribute-id="submersion">
+            ${buildLabelHtml(funkeLabel, "fas fa-fire", "funke")}
+            <div class="attribute-value">
+                ${buildValueHtml(funkeValue, "system.attributes.submersion.value", "funke")}
+            </div>
+        </div>
+    `;
+
+    // 5. Inject HTML
+    if (magicAttribute.length > 0) {
+        // Insert after Magic: Magic -> Funke -> Pracht (based on your previous pref, or swap lines)
+        magicAttribute.after(funkeHtml); 
+        magicAttribute.after(prachtHtml); 
+    } else {
+        attributesContainer.append(prachtHtml);
+        attributesContainer.append(funkeHtml);
+    }
+
+    // 6. Add Event Listeners (Only needed for View Mode / Rolling)
+    // In Edit Mode, the <input name="..."> handles the data saving automatically via the System's form handler.
     
-    specialAttributesSection.prepend(newAttributesHTML);
+    if (!isEditMode) {
+        html.find('.pracht-roll, .pracht-roll-label').on('click', (event) => {
+            event.preventDefault();
+            console.log(`${MODULE_ID} | Rolling Pracht`);
+            app.actor.rollAttribute("resonance", { event: event });
+        });
 
-    // --- SIMPLIFIED EVENT LISTENER ---
-    html.find('.pracht-funke-container .attribute-name').on('click', (event) => {
-        event.preventDefault();
-        const element = event.currentTarget;
-        const attributeName = element.dataset.rollAttribute;
-
-        if (attributeName) {
-            console.log(`${MODULE_ID} | Click detected, calling actor.rollAttribute for: ${attributeName}`);
-            
-            // This single line replaces the entire previous block.
-            // It calls the function you found directly on the actor object.
-            app.actor.rollAttribute(attributeName, { event: event });
-        }
-    });
+        html.find('.funke-roll, .funke-roll-label').on('click', (event) => {
+            event.preventDefault();
+            console.log(`${MODULE_ID} | Rolling Funke`);
+            // Ensure 'submersion' is a valid attribute key for rolling in the system, 
+            // otherwise this might default to a generic roll or fail.
+            app.actor.rollAttribute("submersion", { event: event });
+        });
+    }
 });
